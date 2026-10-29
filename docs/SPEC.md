@@ -1,6 +1,6 @@
 # Spiking-ABM Interpretability Spec
 
-Status: planning. No code yet. The first plan is in [`iterations/000-plan.md`](iterations/000-plan.md), and changes are logged in [`CHANGELOG.md`](CHANGELOG.md).
+Status: M0 done (setup, model A, behaviour lock); M1 next. The first plan is in [`iterations/000-plan.md`](iterations/000-plan.md), and changes are logged in [`CHANGELOG.md`](CHANGELOG.md).
 
 Items marked **Proposal** are candidate approaches that have not been decided. **Open** items are unresolved. Numbers stay preliminary until they are reproduced through the repo CLI.
 
@@ -85,7 +85,7 @@ What D adds over C:
 
 | Task | Known mechanism | Use |
 | --- | --- | --- |
-| **T1, induction.** Random token sequences in which the second half repeats the first. Loss is measured on the repeated half. | A previous-token head, then an induction head through K-composition (Elhage et al., 2021; Olsson et al., 2022). | H1–H4; iteration 000. |
+| **T1, induction.** Random token sequences in which tokens $m$ to $2m - 1$ repeat tokens 0 to $m - 1$, with the period $m$ drawn per sequence from 8 to 32. Loss is measured on the repeated targets. A fixed period lets a positional offset stand in for induction (iteration 000). | A previous-token head, then an induction head through K-composition (Elhage et al., 2021; Olsson et al., 2022). | H1–H4; iteration 000. |
 | **T2, modular addition** ($a + b \bmod p$, $p = 113$). | Fourier features, with logits built from trigonometric identities (Nanda et al., 2023). | Later. It needs an MLP, so the spiking MLP needs a design first. |
 | **T3, toy superposition.** Sparse features compressed into fewer dimensions. | Superposition geometry (Elhage et al., 2022). | Later: does thresholding change superposition? The direction of the effect is **Open**. |
 
@@ -93,7 +93,7 @@ What D adds over C:
 
 The ANN methods are standard and are applied to A, B and C alike, with C's spike counts or membrane currents in place of activations.
 
-- **Head scores** (Olsson et al., 2022). The previous-token score is the attention from position $t$ to $t - 1$. The induction score is the attention from the second occurrence of a token to the token after its first occurrence. In spiking models, attention is the coincidence count normalised per query.
+- **Head scores** (Olsson et al., 2022). The previous-token score is the attention from position $t$ to $t - 1$. The induction score is the attention from the second occurrence of a token to the token after its first occurrence, at position $t - m + 1$. In spiking models, attention is the coincidence count normalised per query.
 - **Ablation:** zero or mean ablation of each head, measured as the change in loss on the repeated half.
 - **Path patching:** for K-composition, patch the output of layer-0 heads into the keys of layer-1 heads only.
 - **Logit lens:** decode the residual stream after each layer through the unembedding.
@@ -170,7 +170,7 @@ The map equation is the starting point, not a settled choice. The candidates bel
 
 ## 8. Environment
 
-**Proposal:** Python 3.11, PyTorch (CPU is enough for models A–C at this size), snnTorch, TransformerLens (for model A's hooks and head scores), infomap (first- and second-order map equations), numpy and scipy. graph-tool (nested SBM) and a Markov-stability implementation are added at M3; information-bottleneck clustering is written in the repo. SuperNeuroABM and CuPy are added only for model D, on a GPU machine. All of these go in `environment.yml`, with versions pinned at M0.
+**Proposal:** Python 3.11, PyTorch (CPU is enough for models A–C at this size), snnTorch, infomap (first- and second-order map equations), numpy and scipy. graph-tool (nested SBM) and a Markov-stability implementation are added at M3; information-bottleneck clustering is written in the repo. SuperNeuroABM and CuPy are added only for model D, on a GPU machine. All of these go in `environment.yml`, with versions pinned at M0. Model A is written directly in PyTorch rather than through TransformerLens, so that model C can share its layout and hook points (iteration 000).
 
 ## 9. Milestones
 

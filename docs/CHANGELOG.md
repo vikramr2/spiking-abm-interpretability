@@ -4,6 +4,13 @@ This file follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) f
 
 ## 2026-10-29
 
+### Added (M0)
+
+- **Code:** `sai/` (`data.py`, `models.py`, `scores.py`), `experiments/m1.py` (training, CLI, summary), `tests/test_regression.py` with `tests/golden.json` (behaviour lock), `environment.yml` with pinned versions, `ruff.toml`, `.gitignore`, `CLAUDE.md` (commands and traps).
+- **Docs:** iteration 000 M0 record (environment, files, exit check, smoke test); SPEC status, T1 row, head-score definition and environment.
+- **Change (task T1):** the repeat period is drawn per sequence from 8 to 32 instead of fixed at 32. With a fixed period, a smoke run reached near-zero loss with a positional induction head and no previous-token head, so the task did not require the circuit. Score definitions in iteration 000 are rewritten for the variable period; the thresholds are unchanged. Seed 0's smoke trajectory has been seen, as disclosed in the record.
+- **Reversal:** model A is written in plain PyTorch, not TransformerLens, so that model C shares its layout and hook points; TransformerLens is dropped from the environment.
+
 ### Changed
 
 - **`docs/SPEC.md`:** learning is stated explicitly. Models A and C are trained by backpropagation (C with surrogate gradients); no Map-STDP or other local plasticity is used. Community objectives are analysis only.

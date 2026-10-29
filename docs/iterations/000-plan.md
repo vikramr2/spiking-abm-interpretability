@@ -3,7 +3,7 @@
 **Date:** 2026-10-29.
 
 - **Milestones:** M0 and M1 (SPEC §9).
-- **Status:** plan. Nothing has been run. This record is updated with commands, results and decisions as the iteration runs.
+- **Status:** M0 done; M1 not yet run. This record is updated with commands, results and decisions as the iteration runs.
 - **Compute:** CPU. Model A at this size trains in minutes, so no cluster job is planned.
 
 ## Problem
@@ -14,27 +14,54 @@ Every later claim (H1–H4) is a comparison against model A's circuit. So model 
 
 | Item | Content |
 | --- | --- |
-| `environment.yml` | Python 3.11, torch (CPU), snntorch, transformer_lens, infomap, numpy, scipy, pytest, ruff, with exact versions pinned. SuperNeuroABM is left out until M4. |
-| Layout | `sai/` is the library (`data.py`, `models.py`, `scores.py`, `graph.py`), `experiments/` holds the milestone scripts, and results go to `experiments/results/`, committed as JSON. |
-| CLI | `python -m experiments.m1 --seed S`, and `python -m experiments.m1 --summary`. |
+| `environment.yml` | Python 3.11, torch (CPU), snntorch, infomap, numpy, scipy, pytest, ruff, with exact versions pinned. SuperNeuroABM is left out until M4. |
+| Layout | `sai/` is the library (`data.py`, `models.py`, `scores.py`; `graph.py` comes at M3), `experiments/` holds the milestone scripts, and results go to `experiments/results/`, committed as JSON. |
+| CLI | `python -m experiments.m1 --seed S`, and `python -m experiments.m1 --summary`. A run writes `m1_s<seed>.json` (config and history) and `m1_s<seed>.pt` (weights). |
 | Determinism | One seeded `torch.Generator` for the data and one for the initialisation, `torch.use_deterministic_algorithms(True)`, and one thread. |
 | Behaviour lock | `tests/golden.json` holds the final loss and the head scores of a 200-step run at seed 0, matched to 1e-6. |
 
 **Exit:** `pytest -q tests` passes, and two runs of the golden case give identical results.
 
+## M0 record
+
+**Environment.** On this machine (a cloud container), a venv with Python 3.11 and the pins in `environment.yml`: torch 2.15.0, snntorch 1.0.0, infomap 2.16.0, numpy 2.4.6, scipy 1.17.1, pytest 9.2.0, ruff 0.17.3. The CPU-only torch index was unreachable here, so torch came from PyPI with its CUDA libraries, and runs on CPU.
+
+**Built.**
+
+| File | Contents |
+| --- | --- |
+| `sai/data.py` | T1 batches with a per-sequence period, the fixed held-out batch (seed 12345, shared by all training seeds), target masks. |
+| `sai/models.py` | `Config` and `AttnOnly` (model A). A `cache` dict receives each layer's attention pattern and head outputs. |
+| `sai/scores.py` | Losses in bits on the repeated and first-copy targets; previous-token and induction scores per head. |
+| `experiments/m1.py` | `train()`, the CLI and `--summary`. Initialisation and data use separate seeded generators (seed, seed + 10⁶); deterministic algorithms, one thread. |
+| `tests/test_regression.py`, `tests/golden.json` | Data and score checks on ideal patterns, a determinism check (two 20-step runs identical), and the golden 200-step run at seed 0, matched to 1e-6. |
+
+**Exit check.** `pytest -q tests` passes (4 tests, about 30 s), and `ruff check .` is clean.
+
+**Change found by the smoke test: the period now varies.** The planned data repeated a 32-token prefix at a fixed offset. A 3000-step smoke run at seed 0 reached a repeated-half loss of 0.01 bits with a layer-1 "induction" score of 1.0, but no layer-0 head ever exceeded a previous-token score of 0.04. With learned positional embeddings and a fixed period, the head can attend 31 positions back by position alone, so the task does not require an induction circuit. The period is now drawn per sequence from 8 to 32. A 4000-step smoke run at seed 0 with the new data:
+
+| Step | Repeated-half loss (bits) | First-half loss (bits) | Max previous-token score, layer 0 | Max induction score, layer 1 |
+| --- | --- | --- | --- | --- |
+| 1500 | 5.28 | 6.18 | 0.09 | 0.12 |
+| 1750 | 2.56 | 6.48 | 0.24 | 0.64 |
+| 2000 | 1.41 | 6.40 | 0.35 | 0.79 |
+| 4000 | 0.91 | 6.30 | 0.44 | 0.83 |
+
+A previous-token head and an induction head now form together, at a drop of 2.7 bits within 250 steps. These are smoke numbers, not M1 results: ablation and path patching have not been run. **Disclosure:** seed 0 is an M1 seed, so its trajectory has been seen. The M1 thresholds below were not changed after seeing it; only the score definitions were rewritten for the variable period.
+
 ## M1: model A on T1
 
-**Data.** For each sequence, draw a prefix of 32 tokens uniformly from a vocabulary of 64, and repeat it once, so the context is 64. A fresh batch is drawn each step from a seeded generator. The repeated-half loss is the mean cross-entropy on positions 33–63, where the target is predictable only by induction. The first-half loss is the control: it should stay near $\log_2 64 = 6$ bits.
+**Data** (revised at M0, see below). Each sequence has 64 tokens drawn uniformly from a vocabulary of 64. A period $m$ is drawn per sequence from 8 to 32, and tokens $m$ to $2m - 1$ are overwritten with a copy of tokens 0 to $m - 1$; the tokens after the copy stay random. A fresh batch is drawn each step from a seeded generator. The repeated-half loss is the mean cross-entropy on targets $m + 1$ to $2m - 1$, which are predictable only by induction. The first-half loss is on targets 1 to $m - 1$; it is the control and should stay near $\log_2 64 = 6$ bits.
 
-**Model.** The SPEC §2 architecture: attention-only, 2 layers, 4 heads, $d_{model} = 64$, no MLP, no LayerNorm. It is built as a TransformerLens `HookedTransformer` with `attn_only=True` and `normalization_type=None`. **Proposal:** if training is unstable without LayerNorm, rerun with LayerNorm, and record it as a deviation.
+**Model.** The SPEC §2 architecture: attention-only, 2 layers, 4 heads, $d_{model} = 64$, no MLP, no LayerNorm. It is written directly in PyTorch (`sai/models.py`), with no biases and initialisation standard deviation $0.8 / \sqrt{d_{model}} = 0.1$. **Proposal:** if training is unstable without LayerNorm, rerun with LayerNorm, and record it as a deviation.
 
 **Training.** AdamW, learning rate 1e-3, weight decay 0.01, batch 64, 6000 steps, with a full evaluation every 100 steps on a fixed held-out batch of 512 sequences. Seeds 0–4.
 
 **Measurements**, saved per evaluation step:
 
 1. Repeated-half and first-half loss.
-2. Previous-token score per head: mean attention from position $t$ to $t - 1$ over the second half.
-3. Induction score per head: mean attention from position $t$ in the second half to position $t - 31$, the token after the first occurrence of the current token.
+2. Previous-token score per head: mean attention from position $t$ to $t - 1$, over all $t \ge 1$.
+3. Induction score per head: mean attention from position $t$ in the copy ($m \le t \le 2m - 2$) to position $t - m + 1$, the token after the first occurrence of the current token.
 4. At the end only, a mean ablation of each head, measured as the change in repeated-half loss.
 5. At the end only, K-composition by path patching: replace the layer-0 head outputs that feed the keys of layer 1 with their means, and measure the change in repeated-half loss per (layer-0 head, layer-1 head) pair.
 
@@ -52,7 +79,7 @@ A seed **has an induction circuit** if all of the following hold:
 
 **M1 passes** if at least 4 of 5 seeds have an induction circuit. These head labels (previous-token, induction, other) are the ground truth for H1 and H2.
 
-**If M1 fails:** first check the training budget (12 000 steps) and the prefix length (16 and 48). If it still fails, add LayerNorm. If it still fails, stop and redesign the task before building any spiking model.
+**If M1 fails:** first check the training budget (12 000 steps) and the period range (8–16 and 16–32). If it still fails, add LayerNorm. If it still fails, stop and redesign the task before building any spiking model.
 
 ## Next (iteration 001, M2)
 
@@ -68,4 +95,4 @@ These steps are listed here so that M1 records what M2 needs:
 
 - **No LayerNorm.** Attention-only models without LayerNorm may train more slowly. The fallback is in the M1 failure path above.
 - **Score thresholds.** The 0.4 thresholds for head scores are a judgement call. The full score distributions are saved, so a threshold can be revisited openly.
-- **TransformerLens versions.** Its default configuration can change between versions. The version is pinned in M0, and the configuration is written out in full in the code.
+- **Period-dependent difficulty.** Short periods give fewer predictable targets per sequence, and a long period leaves little context after the copy. The loss is averaged over targets, so long periods weigh more.

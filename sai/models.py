@@ -1,0 +1,66 @@
+"""Model A: attention-only transformer (SPEC §2).
+
+No MLPs, no LayerNorm, no biases, learned positional embeddings. Written directly rather than
+through TransformerLens so that model C can share its layout and hook points.
+"""
+
+from dataclasses import asdict, dataclass
+
+import torch
+from torch import nn
+
+
+@dataclass(frozen=True)
+class Config:
+    n_layers: int = 2
+    n_heads: int = 4
+    d_model: int = 64
+    d_head: int = 16
+    n_ctx: int = 64
+    vocab: int = 64
+    init_std: float = 0.1  # 0.8 / sqrt(d_model)
+
+    def to_dict(self):
+        return asdict(self)
+
+
+class AttnOnly(nn.Module):
+    """Logits from the residual stream ``x = W_E[t] + W_pos + sum of head outputs``."""
+
+    def __init__(self, cfg, generator):
+        super().__init__()
+        self.cfg = cfg
+        L, H, d, dh = cfg.n_layers, cfg.n_heads, cfg.d_model, cfg.d_head
+        shapes = {
+            "W_E": (cfg.vocab, d),
+            "W_pos": (cfg.n_ctx, d),
+            "W_Q": (L, H, d, dh),
+            "W_K": (L, H, d, dh),
+            "W_V": (L, H, d, dh),
+            "W_O": (L, H, dh, d),
+            "W_U": (d, cfg.vocab),
+        }
+        for name, shape in shapes.items():  # dict order fixes the RNG order
+            p = nn.Parameter(torch.empty(shape))
+            nn.init.normal_(p, 0.0, cfg.init_std, generator=generator)
+            self.register_parameter(name, p)
+
+    def forward(self, tokens, cache=None):
+        """``tokens`` is ``(B, Q)``. If ``cache`` is a dict, it receives ``pattern{l}``
+        ``(B, H, Q, K)`` and ``head_out{l}`` ``(B, H, Q, d)`` for each layer ``l``."""
+        Q = tokens.shape[1]
+        x = self.W_E[tokens] + self.W_pos[:Q]
+        causal = torch.ones(Q, Q, dtype=torch.bool).tril()
+        scale = self.cfg.d_head**-0.5
+        for layer in range(self.cfg.n_layers):
+            q = torch.einsum("bqd,hde->bhqe", x, self.W_Q[layer])
+            k = torch.einsum("bkd,hde->bhke", x, self.W_K[layer])
+            v = torch.einsum("bkd,hde->bhke", x, self.W_V[layer])
+            scores = (q @ k.transpose(-1, -2) * scale).masked_fill(~causal, float("-inf"))
+            pattern = scores.softmax(-1)
+            head_out = torch.einsum("bhqe,hed->bhqd", pattern @ v, self.W_O[layer])
+            if cache is not None:
+                cache[f"pattern{layer}"] = pattern
+                cache[f"head_out{layer}"] = head_out
+            x = x + head_out.sum(1)
+        return x @ self.W_U

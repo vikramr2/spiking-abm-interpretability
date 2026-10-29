@@ -1,0 +1,18 @@
+# Create with: conda env create -f environment.yml && conda activate sai
+# torch from PyPI pulls in CUDA libraries; on a CPU-only machine,
+# `pip install torch==2.15.0 --index-url https://download.pytorch.org/whl/cpu` is smaller.
+# SuperNeuroABM (and CuPy, a GPU) are added only at M4 (SPEC §3.2).
+name: sai
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - torch==2.15.0
+      - snntorch==1.0.0
+      - infomap==2.16.0
+      - numpy==2.4.6
+      - scipy==1.17.1
+      - pytest==9.2.0
+      - ruff==0.17.3
