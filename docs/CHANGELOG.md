@@ -4,6 +4,11 @@ This file follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) f
 
 ## 2026-10-29
 
+### Changed (M1 criteria amendment)
+
+- **Decision (user):** amend M1 to role-level criteria (group ablation per role, group key patching), confirmed on fresh seeds 10–14; seeds 5–9 stay held out for SPEC §5.2. The original criteria are kept and still reported. The previous-token role threshold is 0.3 (was 0.4 per head), chosen after seeing seed 3; disclosed in iteration 000.
+- **Code:** `key_patch` takes lists of source and destination heads (single-pair results unchanged); `experiments/m1.py` adds `ROLE_CRIT`, `role_heads`, `role_verdict`, role-level analysis, `--reanalyse` and the role summary. Seeds 0–4 reanalysed (original fields bit-identical): all pass at role level, not confirmatory.
+
 ### Added (M1 results)
 
 - **Results:** `experiments/results/m1_s{0..4}.json` and `.pt` (6000 steps each).

@@ -66,13 +66,18 @@ def train(seed, cfg=None, steps=STEPS, eval_every=100, batch=64, eval_size=512, 
 # Pre-registered criteria (iteration 000). Changing one needs a CHANGELOG entry and a reason.
 CRIT = dict(rep_max=1.0, first_min=5.5, score_min=0.4, ablate_min=1.0, patch_min=0.5,
             drop_min=2.0, window=500)
+# Role-level amendment (iteration 000, after the M1 failure; confirmed on seeds 10-14).
+ROLE_CRIT = dict(prev_min=0.3, ind_min=0.4, group_ablate_min=2.0, group_patch_min=1.0)
+CONFIRM_SEEDS = range(10, 15)
 
 
 @torch.no_grad()
-def analyse(model, eval_size=512):
+def analyse(model, eval_size=512, scores=None):
     """Mean ablation per head and K-composition path patching (measurements 4-5).
 
     Means are over the held-out batch, per position. Deltas are in repeated-half loss (bits).
+    With ``scores`` (the final evaluation), also the role-level group ablations and the group
+    key patch of ``role_heads``.
     """
     cfg = model.cfg
     seq, m = eval_batch(eval_size, cfg.n_ctx, cfg.vocab)
@@ -86,8 +91,23 @@ def analyse(model, eval_size=512):
 
     H = cfg.n_heads
     ablation = [[delta(ablate=[(layer, h)]) for h in range(H)] for layer in range(cfg.n_layers)]
-    patch = [[delta(key_patch=(0, h0, 1, h1)) for h1 in range(H)] for h0 in range(H)]
-    return dict(base_rep=base, ablation=ablation, patch_0to1_keys=patch)
+    patch = [[delta(key_patch=(0, [h0], 1, [h1])) for h1 in range(H)] for h0 in range(H)]
+    out = dict(base_rep=base, ablation=ablation, patch_0to1_keys=patch)
+    if scores is not None:
+        prev, ind = role_heads(scores)
+        out["roles"] = dict(prev=prev, induction=ind,
+                            ablate_prev=delta(ablate=[(0, h) for h in prev]) if prev else 0.0,
+                            ablate_induction=delta(ablate=[(1, h) for h in ind]) if ind else 0.0,
+                            patch=delta(key_patch=(0, prev, 1, ind)) if prev and ind else 0.0)
+    return out
+
+
+def role_heads(last):
+    """Role-level heads from the final evaluation: layer-0 previous-token, layer-1 induction."""
+    c = ROLE_CRIT
+    prev = [h for h, s in enumerate(last["prev"][0]) if s > c["prev_min"]]
+    ind = [h for h, s in enumerate(last["ind"][1]) if s > c["ind_min"]]
+    return prev, ind
 
 
 def verdict(run):
@@ -120,13 +140,31 @@ def verdict(run):
                 labels=labels)
 
 
+def role_verdict(run):
+    """Role-level criteria (amendment): learning and phase change as in ``verdict``; group
+    ablation of each role and the group key patch replace the single-head checks."""
+    c, r = ROLE_CRIT, run["analysis"]["roles"]
+    v = verdict(run)
+    checks = dict(learning=v["checks"]["learning"], phase_change=v["checks"]["phase_change"],
+                  prev_role=bool(r["prev"]) and r["ablate_prev"] >= c["group_ablate_min"],
+                  induction_role=bool(r["induction"])
+                  and r["ablate_induction"] >= c["group_ablate_min"],
+                  composition=r["patch"] >= c["group_patch_min"])
+    labels = [["other"] * len(run["history"][-1]["prev"][0]) for _ in range(2)]
+    for h in r["prev"]:
+        labels[0][h] = "prev"
+    for h in r["induction"]:
+        labels[1][h] = "induction"
+    return dict(checks=checks, passed=all(checks.values()), labels=labels)
+
+
 def result_path(seed, steps):
     tag = "" if steps == STEPS else f"_st{steps}"
     return f"{RESULTS}/m1_s{seed}{tag}.json"
 
 
 def summary():
-    n_pass = n = 0
+    n_pass = n = n_role_pass = n_role = 0
     for path in sorted(glob.glob(f"{RESULTS}/m1_*.json")):
         with open(path) as f:
             run = json.load(f)
@@ -139,9 +177,20 @@ def summary():
             failed = [k for k, ok in v["checks"].items() if not ok]
             line += f"  pairs {v['pairs']}  {'PASS' if v['passed'] else 'FAIL ' + ','.join(failed)}"
             n, n_pass = n + 1, n_pass + v["passed"]
+        if "roles" in run.get("analysis", {}):
+            r, rv = run["analysis"]["roles"], role_verdict(run)
+            failed = [k for k, ok in rv["checks"].items() if not ok]
+            line += (f"  | roles P{r['prev']} I{r['induction']} abl {r['ablate_prev']:.2f}/"
+                     f"{r['ablate_induction']:.2f} patch {r['patch']:.2f} "
+                     f"{'PASS' if rv['passed'] else 'FAIL ' + ','.join(failed)}")
+            if run["seed"] in CONFIRM_SEEDS:
+                n_role, n_role_pass = n_role + 1, n_role_pass + rv["passed"]
         print(line)
     if n:
-        print(f"{n_pass}/{n} seeds have an induction circuit (M1 passes at >= 4 of 5)")
+        print(f"{n_pass}/{n} seeds pass the original criteria")
+    if n_role:
+        print(f"{n_role_pass}/{n_role} confirmation seeds (10-14) pass the role-level criteria "
+              "(M1 passes at >= 4 of 5)")
 
 
 def main():
@@ -149,15 +198,28 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--steps", type=int, default=STEPS)
     ap.add_argument("--summary", action="store_true")
+    ap.add_argument("--reanalyse", action="store_true",
+                    help="recompute the analysis of an existing run from its saved weights")
     args = ap.parse_args()
     if args.summary:
         summary()
         return
+    path = result_path(args.seed, args.steps)
+    if args.reanalyse:
+        with open(path) as f:
+            run = json.load(f)
+        model = AttnOnly(Config(**run["config"]), torch.Generator())
+        model.load_state_dict(torch.load(path.replace(".json", ".pt")))
+        deterministic()
+        run["analysis"] = analyse(model, run["eval_size"], run["history"][-1])
+        with open(path, "w") as f:
+            json.dump(run, f)
+        print(path)
+        return
     run, model = train(args.seed, steps=args.steps)
-    run["analysis"] = analyse(model, run["eval_size"])
+    run["analysis"] = analyse(model, run["eval_size"], run["history"][-1])
     run["crit"] = CRIT
     os.makedirs(RESULTS, exist_ok=True)
-    path = result_path(args.seed, args.steps)
     with open(path, "w") as f:
         json.dump(run, f)
     torch.save(model.state_dict(), path.replace(".json", ".pt"))

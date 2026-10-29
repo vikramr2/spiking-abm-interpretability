@@ -31,4 +31,5 @@ ruff check .
 
 - **RNG order defines every run.** Initialisation draws parameters in the order of `AttnOnly`'s `shapes` dict; data draws the periods, then the tokens. Moving or adding a draw breaks `tests/golden.json`. Put new features behind flags whose default path draws nothing extra.
 - **T1 needs a variable period.** A fixed repeat offset lets a positional head fake induction (iteration 000).
+- **Seeds 10–14 confirm the M1 role-level criteria**, fixed before they ran (iteration 000).
 - **Seeds 5–9 are held out** for confirming the SPEC §5.2 objective selection. Do not train or look at them before that selection.

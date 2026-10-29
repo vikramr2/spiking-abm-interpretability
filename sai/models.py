@@ -51,9 +51,9 @@ class AttnOnly(nn.Module):
 
         Interventions (iteration 000, measurements 4-5) use ``means``, a list over layers of
         ``(H, Q, d)`` mean head outputs. ``ablate`` holds ``(layer, head)`` pairs whose output is
-        replaced by its mean everywhere. ``key_patch = (src_layer, src_head, dst_layer,
-        dst_head)`` replaces the source head's output by its mean only in the input to the
-        destination head's keys (path patching for K-composition).
+        replaced by its mean everywhere. ``key_patch = (src_layer, src_heads, dst_layer,
+        dst_heads)`` replaces the source heads' outputs by their means only in the input to the
+        destination heads' keys (path patching for K-composition; heads are sequences).
         """
         Q = tokens.shape[1]
         x = self.W_E[tokens] + self.W_pos[:Q]
@@ -65,10 +65,13 @@ class AttnOnly(nn.Module):
             k = torch.einsum("bkd,hde->bhke", x, self.W_K[layer])
             v = torch.einsum("bkd,hde->bhke", x, self.W_V[layer])
             if key_patch is not None and key_patch[2] == layer:
-                sl, sh, _, dh = key_patch
-                x_k = x - outs[sl][:, sh] + means[sl][sh][:Q]
+                sl, src, _, dst = key_patch
+                x_k = x
+                for sh in src:
+                    x_k = x_k - outs[sl][:, sh] + means[sl][sh][:Q]
                 k = k.clone()
-                k[:, dh] = x_k @ self.W_K[layer, dh]
+                for dh in dst:
+                    k[:, dh] = x_k @ self.W_K[layer, dh]
             scores = (q @ k.transpose(-1, -2) * scale).masked_fill(~causal, float("-inf"))
             pattern = scores.softmax(-1)
             head_out = torch.einsum("bhqe,hed->bhqd", pattern @ v, self.W_O[layer])

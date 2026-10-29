@@ -3,7 +3,7 @@
 **Date:** 2026-10-29.
 
 - **Milestones:** M0 and M1 (SPEC §9).
-- **Status:** M0 done; M1 not yet run. This record is updated with commands, results and decisions as the iteration runs.
+- **Status:** M0 done; M1 failed its original criteria, and the role-level amendment is being confirmed on seeds 10–14. This record is updated with commands, results and decisions as the iteration runs.
 - **Compute:** CPU. Model A at this size trains in minutes, so no cluster job is planned.
 
 ## Problem
@@ -118,7 +118,23 @@ Learning and the phase change pass on every seed. The half-rise step is 1600–1
 
 Removing either role as a group sends the repeated-half loss back to near chance (about 6 bits) on every seed. So all 5 seeds have a previous-token → induction circuit at the level of roles; only how the roles are spread across heads differs. This bears on H2: the ground-truth unit is a group of heads, which suits community detection better than single-head labels.
 
-**Decision pending (user).** The pre-registered failure path (a longer budget, other period ranges, LayerNorm) does not address redundancy. The options are recorded in the CHANGELOG once chosen.
+**Decision (user): amend to role-level criteria, confirm on fresh seeds.** The pre-registered failure path (a longer budget, other period ranges, LayerNorm) does not address redundancy, so it was not followed. The amended criteria below were fixed and committed before seeds 10–14 were trained. Seeds 5–9 stay held out for SPEC §5.2.
+
+### Amended criteria (role level)
+
+The original criteria are kept and still reported. A seed **has an induction circuit at role level** if:
+
+- **Learning** and **phase change:** unchanged.
+- **Roles.** The previous-token role is every layer-0 head with a previous-token score above 0.3. The induction role is every layer-1 head with an induction score above 0.4.
+- **Previous-token role.** It is non-empty, and ablating all its heads together raises the repeated-half loss by at least 2.0 bits.
+- **Induction role.** The same, at least 2.0 bits.
+- **Composition.** Replacing the previous-token role's outputs by their means, only in the input to the induction role's keys, raises the repeated-half loss by at least 1.0 bit.
+
+**M1 passes** if at least 4 of the 5 confirmation seeds (10–14) pass. Head labels for M2 come from `role_verdict()`.
+
+**Seeds 0–4 under the amended criteria** (not confirmatory, because the amendment was designed on them): all 5 pass. Group ablation of the previous-token role costs 4.73–5.03 bits, the induction role 5.16–5.21 bits, and the group key patch 4.83–5.07 bits. `--reanalyse` on the saved weights reproduced the original single-head numbers exactly.
+
+**Why these thresholds.** Chance is about 6 bits and trained models reach about 0.8, so removing a whole role should cost about 5 bits. Thresholds of 2.0 and 1.0 bits ask for well under half of that, so they test for the circuit's presence, not for how cleanly it is split. The 0.3 previous-token threshold (down from 0.4) is the one change chosen after seeing seed 3's head 0 at 0.35, and it is disclosed as such.
 
 ## Next (iteration 001, M2)
 

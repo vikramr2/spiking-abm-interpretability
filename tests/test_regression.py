@@ -59,7 +59,7 @@ def test_interventions_are_local():
         model(tokens, base)
         means = [base[f"head_out{layer}"].mean(0) for layer in range(2)]
         patched, ablated = {}, {}
-        model(tokens, patched, means=means, key_patch=(0, 1, 1, 2))
+        model(tokens, patched, means=means, key_patch=(0, [1], 1, [2]))
         model(tokens, ablated, means=means, ablate=[(0, 3)])
     assert torch.equal(patched["pattern0"], base["pattern0"])
     for h in range(4):
