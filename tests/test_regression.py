@@ -13,6 +13,7 @@ import torch
 
 from experiments.m1 import train
 from sai.data import induction_batch, target_masks
+from sai.models import AttnOnly, Config
 from sai.scores import head_scores
 
 GOLDEN = Path(__file__).with_name("golden.json")
@@ -45,6 +46,27 @@ def test_head_scores_on_ideal_patterns():
         ind[b, 0, q, (q - mb + 1).clamp(min=0)] = 1
     assert head_scores(prev, m)[0] == [pytest.approx(1.0)]
     assert head_scores(ind, m)[1] == [pytest.approx(1.0)]
+
+
+def test_interventions_are_local():
+    """Key patching changes only the destination head's pattern; ablating a head changes only
+    its own output; no intervention changes layer 0's patterns."""
+    model = AttnOnly(Config(), torch.Generator().manual_seed(0))
+    seq, _ = induction_batch(4, 64, 64, torch.Generator().manual_seed(2))
+    tokens = seq[:, :-1]
+    base = {}
+    with torch.no_grad():
+        model(tokens, base)
+        means = [base[f"head_out{layer}"].mean(0) for layer in range(2)]
+        patched, ablated = {}, {}
+        model(tokens, patched, means=means, key_patch=(0, 1, 1, 2))
+        model(tokens, ablated, means=means, ablate=[(0, 3)])
+    assert torch.equal(patched["pattern0"], base["pattern0"])
+    for h in range(4):
+        same = torch.equal(patched["pattern1"][:, h], base["pattern1"][:, h])
+        assert same == (h != 2)
+        same = torch.equal(ablated["head_out0"][:, h], base["head_out0"][:, h])
+        assert same == (h != 3)
 
 
 def test_deterministic():

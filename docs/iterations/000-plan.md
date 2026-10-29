@@ -77,6 +77,13 @@ A seed **has an induction circuit** if all of the following hold:
 - **Composition.** Path-patching that layer-0 head into the keys of that layer-1 head raises the repeated-half loss by at least 0.5 bits.
 - **Phase change.** The repeated-half loss drops by at least 2 bits within a window of at most 500 steps, and the rise of the induction score falls within the same window.
 
+**How the criteria are coded** (`experiments/m1.py`, `CRIT`, `analyse`, `verdict`). Written down before the M1 results were read:
+
+- **Means** for ablation and patching are per position, over the 512 held-out sequences. Every loss in the criteria is measured on that batch.
+- **Several candidate heads.** Every layer-0 head above the previous-token threshold, and every layer-1 head that passes both induction conditions, is a candidate. Composition passes if any (previous-token head, induction head) pair passes.
+- **Phase change.** The "rise of the induction score" is placed at the first evaluation step where the largest layer-1 induction score reaches half of its total rise from step 0 to the end. A pair of evaluation steps at most 500 apart, with a loss drop of at least 2 bits between them, must contain that step. Evaluations are every 100 steps.
+- **Head labels** for H1 and H2 come from `verdict()`, recomputed from the saved run: "prev" for the layer-0 candidates, "induction" for the layer-1 candidates, "other" for the rest.
+
 **M1 passes** if at least 4 of 5 seeds have an induction circuit. These head labels (previous-token, induction, other) are the ground truth for H1 and H2.
 
 **If M1 fails:** first check the training budget (12 000 steps) and the period range (8–16 and 16–32). If it still fails, add LayerNorm. If it still fails, stop and redesign the task before building any spiking model.

@@ -4,6 +4,11 @@ This file follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) f
 
 ## 2026-10-29
 
+### Added (M1 code)
+
+- **Code:** `AttnOnly.forward` takes `means`, `ablate` and `key_patch` (mean ablation and K-composition path patching; the default path is unchanged, golden bit-identical). `experiments/m1.py` adds `CRIT` (the pre-registered thresholds), `analyse()` (per-head ablation, 4 × 4 key-patching deltas) and `verdict()` (per-criterion checks and head labels); `--summary` prints verdicts. New test: interventions are local.
+- **Docs:** iteration 000 records how the criteria are coded (per-position means, candidate pairs, the half-rise rule for the phase change), written before the M1 results were read.
+
 ### Added (M0)
 
 - **Code:** `sai/` (`data.py`, `models.py`, `scores.py`), `experiments/m1.py` (training, CLI, summary), `tests/test_regression.py` with `tests/golden.json` (behaviour lock), `environment.yml` with pinned versions, `ruff.toml`, `.gitignore`, `CLAUDE.md` (commands and traps).

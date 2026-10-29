@@ -63,18 +63,85 @@ def train(seed, cfg=None, steps=STEPS, eval_every=100, batch=64, eval_size=512, 
     return run, model
 
 
+# Pre-registered criteria (iteration 000). Changing one needs a CHANGELOG entry and a reason.
+CRIT = dict(rep_max=1.0, first_min=5.5, score_min=0.4, ablate_min=1.0, patch_min=0.5,
+            drop_min=2.0, window=500)
+
+
+@torch.no_grad()
+def analyse(model, eval_size=512):
+    """Mean ablation per head and K-composition path patching (measurements 4-5).
+
+    Means are over the held-out batch, per position. Deltas are in repeated-half loss (bits).
+    """
+    cfg = model.cfg
+    seq, m = eval_batch(eval_size, cfg.n_ctx, cfg.vocab)
+    tokens = seq[:, :-1]
+    cache = {}
+    base = split_losses(model(tokens, cache), seq, m)[0]
+    means = [cache[f"head_out{layer}"].mean(0) for layer in range(cfg.n_layers)]
+
+    def delta(**kw):
+        return split_losses(model(tokens, means=means, **kw), seq, m)[0] - base
+
+    H = cfg.n_heads
+    ablation = [[delta(ablate=[(layer, h)]) for h in range(H)] for layer in range(cfg.n_layers)]
+    patch = [[delta(key_patch=(0, h0, 1, h1)) for h1 in range(H)] for h0 in range(H)]
+    return dict(base_rep=base, ablation=ablation, patch_0to1_keys=patch)
+
+
+def verdict(run):
+    """Apply the iteration-000 criteria to one run. Returns per-criterion results and labels."""
+    c, hist, an = CRIT, run["history"], run["analysis"]
+    last = hist[-1]
+    prev0, ind1, abl1 = last["prev"][0], last["ind"][1], an["ablation"][1]
+    prev_heads = [h for h, s in enumerate(prev0) if s > c["score_min"]]
+    ind_heads = [h for h, s in enumerate(ind1) if s > c["score_min"] and abl1[h] >= c["ablate_min"]]
+    pairs = [(h0, h1) for h0 in prev_heads for h1 in ind_heads
+             if an["patch_0to1_keys"][h0][h1] >= c["patch_min"]]
+    # Phase change: a drop of >= drop_min bits within <= window steps, containing the step at
+    # which the max layer-1 induction score first reaches half of its total rise.
+    top = [max(h["ind"][1]) for h in hist]
+    half = top[0] + (top[-1] - top[0]) / 2
+    s_half = next(h["step"] for h, t in zip(hist, top, strict=True) if t >= half)
+    phase = any(a["step"] <= s_half <= b["step"]
+                and b["step"] - a["step"] <= c["window"]
+                and a["loss_rep"] - b["loss_rep"] >= c["drop_min"]
+                for i, a in enumerate(hist) for b in hist[i + 1:])
+    checks = dict(learning=last["loss_rep"] < c["rep_max"] and last["loss_first"] > c["first_min"],
+                  induction_head=bool(ind_heads), prev_token_head=bool(prev_heads),
+                  composition=bool(pairs), phase_change=phase)
+    labels = [["other"] * len(prev0) for _ in last["prev"]]
+    for h in prev_heads:
+        labels[0][h] = "prev"
+    for h in ind_heads:
+        labels[1][h] = "induction"
+    return dict(checks=checks, passed=all(checks.values()), pairs=pairs, s_half=s_half,
+                labels=labels)
+
+
 def result_path(seed, steps):
     tag = "" if steps == STEPS else f"_st{steps}"
     return f"{RESULTS}/m1_s{seed}{tag}.json"
 
 
 def summary():
+    n_pass = n = 0
     for path in sorted(glob.glob(f"{RESULTS}/m1_*.json")):
         with open(path) as f:
-            last = json.load(f)["history"][-1]
-        print(f"{os.path.basename(path)}  step {last['step']}  rep {last['loss_rep']:.3f}  "
-              f"first {last['loss_first']:.3f}  max prev L0 {max(last['prev'][0]):.2f}  "
-              f"max ind L1 {max(last['ind'][1]):.2f}")
+            run = json.load(f)
+        last = run["history"][-1]
+        line = (f"{os.path.basename(path)}  rep {last['loss_rep']:.3f}  "
+                f"first {last['loss_first']:.3f}  max prev L0 {max(last['prev'][0]):.2f}  "
+                f"max ind L1 {max(last['ind'][1]):.2f}")
+        if "analysis" in run:
+            v = verdict(run)
+            failed = [k for k, ok in v["checks"].items() if not ok]
+            line += f"  pairs {v['pairs']}  {'PASS' if v['passed'] else 'FAIL ' + ','.join(failed)}"
+            n, n_pass = n + 1, n_pass + v["passed"]
+        print(line)
+    if n:
+        print(f"{n_pass}/{n} seeds have an induction circuit (M1 passes at >= 4 of 5)")
 
 
 def main():
@@ -87,6 +154,8 @@ def main():
         summary()
         return
     run, model = train(args.seed, steps=args.steps)
+    run["analysis"] = analyse(model, run["eval_size"])
+    run["crit"] = CRIT
     os.makedirs(RESULTS, exist_ok=True)
     path = result_path(args.seed, args.steps)
     with open(path, "w") as f:

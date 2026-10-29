@@ -45,22 +45,40 @@ class AttnOnly(nn.Module):
             nn.init.normal_(p, 0.0, cfg.init_std, generator=generator)
             self.register_parameter(name, p)
 
-    def forward(self, tokens, cache=None):
+    def forward(self, tokens, cache=None, means=None, ablate=(), key_patch=None):
         """``tokens`` is ``(B, Q)``. If ``cache`` is a dict, it receives ``pattern{l}``
-        ``(B, H, Q, K)`` and ``head_out{l}`` ``(B, H, Q, d)`` for each layer ``l``."""
+        ``(B, H, Q, K)`` and ``head_out{l}`` ``(B, H, Q, d)`` for each layer ``l``.
+
+        Interventions (iteration 000, measurements 4-5) use ``means``, a list over layers of
+        ``(H, Q, d)`` mean head outputs. ``ablate`` holds ``(layer, head)`` pairs whose output is
+        replaced by its mean everywhere. ``key_patch = (src_layer, src_head, dst_layer,
+        dst_head)`` replaces the source head's output by its mean only in the input to the
+        destination head's keys (path patching for K-composition).
+        """
         Q = tokens.shape[1]
         x = self.W_E[tokens] + self.W_pos[:Q]
         causal = torch.ones(Q, Q, dtype=torch.bool).tril()
         scale = self.cfg.d_head**-0.5
+        outs = []
         for layer in range(self.cfg.n_layers):
             q = torch.einsum("bqd,hde->bhqe", x, self.W_Q[layer])
             k = torch.einsum("bkd,hde->bhke", x, self.W_K[layer])
             v = torch.einsum("bkd,hde->bhke", x, self.W_V[layer])
+            if key_patch is not None and key_patch[2] == layer:
+                sl, sh, _, dh = key_patch
+                x_k = x - outs[sl][:, sh] + means[sl][sh][:Q]
+                k = k.clone()
+                k[:, dh] = x_k @ self.W_K[layer, dh]
             scores = (q @ k.transpose(-1, -2) * scale).masked_fill(~causal, float("-inf"))
             pattern = scores.softmax(-1)
             head_out = torch.einsum("bhqe,hed->bhqd", pattern @ v, self.W_O[layer])
+            for al, ah in ablate:
+                if al == layer:
+                    head_out = head_out.clone()
+                    head_out[:, ah] = means[layer][ah][:Q]
             if cache is not None:
                 cache[f"pattern{layer}"] = pattern
                 cache[f"head_out{layer}"] = head_out
+            outs.append(head_out)
             x = x + head_out.sum(1)
         return x @ self.W_U
