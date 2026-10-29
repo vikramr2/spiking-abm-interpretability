@@ -4,6 +4,12 @@ This file follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) f
 
 ## 2026-10-29
 
+### Added (M1 results)
+
+- **Results:** `experiments/results/m1_s{0..4}.json` and `.pt` (6000 steps each).
+- **Finding:** M1 **fails** under the pre-registered criteria, 3 of 5 seeds. The circuit is redundant, not missing: all four layer-1 heads are induction heads, so single-head ablation costs about 0.9 bits (threshold 1.0), and in seeds 0 and 3 the previous-token role is split across 2–3 layer-0 heads. A post-hoc group ablation (exploratory) removes either role at 4.7–5.2 bits on every seed. Iteration 000 records both.
+- **Decision pending:** whether to amend the criteria to role level (confirmed on fresh seeds), change the architecture, or follow the pre-registered failure path.
+
 ### Added (M1 code)
 
 - **Code:** `AttnOnly.forward` takes `means`, `ablate` and `key_patch` (mean ablation and K-composition path patching; the default path is unchanged, golden bit-identical). `experiments/m1.py` adds `CRIT` (the pre-registered thresholds), `analyse()` (per-head ablation, 4 × 4 key-patching deltas) and `verdict()` (per-criterion checks and head labels); `--summary` prints verdicts. New test: interventions are local.

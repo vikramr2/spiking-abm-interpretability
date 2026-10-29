@@ -88,6 +88,38 @@ A seed **has an induction circuit** if all of the following hold:
 
 **If M1 fails:** first check the training budget (12 000 steps) and the period range (8–16 and 16–32). If it still fails, add LayerNorm. If it still fails, stop and redesign the task before building any spiking model.
 
+## M1 results
+
+**Runs.** `python -m experiments.m1 --seed S` for S = 0–4, run in parallel on this machine (4 CPUs, about 13 min each). Results: `experiments/results/m1_s<S>.json` and `.pt`. `python -m experiments.m1 --summary` gives the verdicts.
+
+**Verdict under the pre-registered criteria: M1 fails, 3 of 5 seeds (1, 2, 4) pass.** Seeds 0 and 3 fail the induction-head and composition criteria.
+
+| Seed | Repeated / first loss (bits) | Previous-token scores, layer 0 | Induction scores, layer 1 | Single-head ablation, layer 1 (bits) | Passing pair | Verdict |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | 0.81 / 6.28 | 0.46, 0.45, 0.03, 0.06 | 0.82, 0.83, 0.83, 0.81 | 0.88, 0.91, 0.88, 0.99 | none | fail |
+| 1 | 0.82 / 6.29 | 0.02, 0.05, 0.03, 0.47 | 0.85, 0.85, 0.85, 0.85 | 1.03, 0.76, 0.91, 0.90 | (3, 0) | pass |
+| 2 | 0.85 / 6.29 | 0.04, 0.04, 0.03, 0.47 | 0.80, 0.79, 0.80, 0.78 | 0.92, 0.92, 0.92, 1.03 | (3, 3) | pass |
+| 3 | 0.86 / 6.28 | 0.35, 0.40, 0.41, 0.04 | 0.84, 0.84, 0.84, 0.83 | 0.85, 0.79, 0.93, 0.97 | none | fail |
+| 4 | 0.81 / 6.27 | 0.04, 0.46, 0.05, 0.02 | 0.83, 0.83, 0.84, 0.83 | 0.99, 0.86, 0.78, 1.01 | (1, 3) | pass |
+
+Learning and the phase change pass on every seed. The half-rise step is 1600–1800, inside a drop from about 5 bits at step 1500 to about 1.3 bits at step 2000.
+
+**Diagnosis: the circuit is redundant, not missing.** Every layer-1 head is an induction head (scores 0.78–0.85 on every seed). The induction work is shared, so ablating one head costs about 0.9 bits, and the passing seeds clear the 1.0-bit threshold only by margins of 0.01–0.03. In seeds 0 and 3, the previous-token role is also split, across 2 and 3 layer-0 heads; each one then carries only part of the key path, so no single pair reaches the 0.5-bit patching threshold. The criteria assumed one head per role.
+
+**Post-hoc check (exploratory, not pre-registered).** Group mean ablation on the saved weights, with "previous-token-like" relaxed to a score above 0.3 so that seed 3's head 0 (0.35) is included:
+
+| Seed | Previous-token-like heads, layer 0 | Ablate them together (bits) | Ablate all 4 layer-1 heads (bits) | Ablate the other layer-0 heads (bits) |
+| --- | --- | --- | --- | --- |
+| 0 | 0, 1 | 5.00 | 5.21 | 1.28 |
+| 1 | 3 | 4.78 | 5.20 | 1.48 |
+| 2 | 3 | 5.03 | 5.17 | 2.01 |
+| 3 | 0, 1, 2 | 4.73 | 5.16 | 0.59 |
+| 4 | 1 | 4.99 | 5.21 | 1.63 |
+
+Removing either role as a group sends the repeated-half loss back to near chance (about 6 bits) on every seed. So all 5 seeds have a previous-token → induction circuit at the level of roles; only how the roles are spread across heads differs. This bears on H2: the ground-truth unit is a group of heads, which suits community detection better than single-head labels.
+
+**Decision pending (user).** The pre-registered failure path (a longer budget, other period ranges, LayerNorm) does not address redundancy. The options are recorded in the CHANGELOG once chosen.
+
 ## Next (iteration 001, M2)
 
 These steps are listed here so that M1 records what M2 needs:
