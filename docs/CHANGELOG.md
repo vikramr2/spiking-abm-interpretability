@@ -7,7 +7,7 @@ This file follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) f
 ### Added (M1 confirmation)
 
 - **Results:** `experiments/results/m1_s{10..14}.json` and `.pt`.
-- **Finding:** M1 **passes** at role level, 5 of 5 confirmation seeds; the original criteria pass 1 of 5. All four layer-1 heads are induction heads on every seed; the previous-token role is 1–3 layer-0 heads. Group key patching costs 4.8–5.1 bits, close to ablating the whole role, so the circuit runs through K-composition. SPEC status updated; M2 scoring uses the role-level criteria.
+- **Finding:** M1 **passes** at role level, 5 of 5 confirmation seeds; the original criteria pass 1 of 5. All four layer-1 heads are induction heads on every seed; the previous-token role is 1–3 layer-0 heads. Group key patching costs 4.8–5.1 bits, close to ablating the whole role, so the circuit runs through K-composition. SPEC status updated; M2 scoring uses the role-level criteria, and H1's falsification criterion is restated at role level (before any M2 run).
 
 ### Changed (M1 criteria amendment)
 
