@@ -1,6 +1,6 @@
 # Spiking-ABM Interpretability Spec
 
-Status: M0 done (setup, model A, behaviour lock); M1 next. The first plan is in [`iterations/000-plan.md`](iterations/000-plan.md), and changes are logged in [`CHANGELOG.md`](CHANGELOG.md).
+Status: M0 and M1 done (iteration 000): model A forms a previous-token → induction circuit on every seed, spread over several heads per role. M2 next. The first plan is in [`iterations/000-plan.md`](iterations/000-plan.md), and changes are logged in [`CHANGELOG.md`](CHANGELOG.md).
 
 Items marked **Proposal** are candidate approaches that have not been decided. **Open** items are unresolved. Numbers stay preliminary until they are reproduced through the repo CLI.
 

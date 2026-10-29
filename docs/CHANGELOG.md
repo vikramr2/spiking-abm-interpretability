@@ -4,6 +4,11 @@ This file follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) f
 
 ## 2026-10-29
 
+### Added (M1 confirmation)
+
+- **Results:** `experiments/results/m1_s{10..14}.json` and `.pt`.
+- **Finding:** M1 **passes** at role level, 5 of 5 confirmation seeds; the original criteria pass 1 of 5. All four layer-1 heads are induction heads on every seed; the previous-token role is 1–3 layer-0 heads. Group key patching costs 4.8–5.1 bits, close to ablating the whole role, so the circuit runs through K-composition. SPEC status updated; M2 scoring uses the role-level criteria.
+
 ### Changed (M1 criteria amendment)
 
 - **Decision (user):** amend M1 to role-level criteria (group ablation per role, group key patching), confirmed on fresh seeds 10–14; seeds 5–9 stay held out for SPEC §5.2. The original criteria are kept and still reported. The previous-token role threshold is 0.3 (was 0.4 per head), chosen after seeing seed 3; disclosed in iteration 000.

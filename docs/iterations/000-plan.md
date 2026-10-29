@@ -3,7 +3,7 @@
 **Date:** 2026-10-29.
 
 - **Milestones:** M0 and M1 (SPEC §9).
-- **Status:** M0 done; M1 failed its original criteria, and the role-level amendment is being confirmed on seeds 10–14. This record is updated with commands, results and decisions as the iteration runs.
+- **Status:** M0 and M1 done. M1 failed its original criteria and passed the role-level amendment on fresh seeds 10–14 (5 of 5). This record is updated with commands, results and decisions as the iteration runs.
 - **Compute:** CPU. Model A at this size trains in minutes, so no cluster job is planned.
 
 ## Problem
@@ -136,13 +136,36 @@ The original criteria are kept and still reported. A seed **has an induction cir
 
 **Why these thresholds.** Chance is about 6 bits and trained models reach about 0.8, so removing a whole role should cost about 5 bits. Thresholds of 2.0 and 1.0 bits ask for well under half of that, so they test for the circuit's presence, not for how cleanly it is split. The 0.3 previous-token threshold (down from 0.4) is the one change chosen after seeing seed 3's head 0 at 0.35, and it is disclosed as such.
 
+### Confirmation (seeds 10–14)
+
+**Runs.** `python -m experiments.m1 --seed S` for S = 10–14, in parallel, after the amendment was committed.
+
+**Verdict: M1 passes, 5 of 5 confirmation seeds at role level.** Under the original single-head criteria, only seed 10 passes (1 of 5); 4 of the 10 seeds pass overall.
+
+| Seed | Repeated / first loss (bits) | Previous-token role (layer 0) | Induction role (layer 1) | Ablate previous-token role (bits) | Ablate induction role (bits) | Group key patch (bits) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 10 | 0.80 / 6.31 | head 0 | all 4 | 5.10 | 5.22 | 5.13 |
+| 11 | 0.82 / 6.28 | heads 1, 3 | all 4 | 4.80 | 5.20 | 4.89 |
+| 12 | 0.84 / 6.29 | heads 0, 2 | all 4 | 4.74 | 5.19 | 4.83 |
+| 13 | 0.86 / 6.27 | heads 1, 3 | all 4 | 4.81 | 5.16 | 4.88 |
+| 14 | 0.82 / 6.29 | head 2 | all 4 | 5.00 | 5.20 | 5.03 |
+
+Seed 12's head 0 (0.35) is in its role only because of the 0.3 threshold.
+
+**Findings for later milestones.**
+
+- **The layer-1 role is always all four heads.** Every layer-1 head is an induction head on all 10 seeds, with scores 0.78–0.85.
+- **The layer-0 role varies.** It is one head on 5 seeds, two on 4 and three on 1; the remaining layer-0 heads have previous-token scores of 0.06 or less.
+- **The key path carries the circuit.** Blocking only the previous-token role's contribution to the induction keys costs nearly as much as ablating the whole role (4.83–5.13 against 4.73–5.10 bits): K-composition, as in Olsson et al. (2022).
+- **Consequence for H1 and H2.** Ground truth is per role, not per head. The layer-0 split is the part of the circuit that differs between seeds, so it is the part a community partition has to recover.
+
 ## Next (iteration 001, M2)
 
 These steps are listed here so that M1 records what M2 needs:
 
 1. **Model B**: convert model A for each seed (SPEC §3.1), and report the conversion gap in repeated-half loss.
 2. **Model C**: train the spiking transformer directly on the same data and seeds, at $T = 8$, with spike-driven attention (SPEC §2.1).
-3. **Scoring**: apply the M1 criteria to B and C unchanged, with attention measured as normalised coincidence counts. This decides H1.
+3. **Scoring**: apply the M1 role-level criteria to B and C unchanged, with attention measured as normalised coincidence counts. This decides H1.
 
 **Things to keep from M1 for M2:** the trained checkpoints of A, the held-out evaluation batch, and the per-seed head labels. All three are committed.
 
